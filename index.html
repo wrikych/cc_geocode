@@ -1,3 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Route Optimizer (Static)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem}
+    .card{border:1px solid #e5e7eb;border-radius:12px;padding:1rem;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+    #map{height:70vh;border-radius:12px;border:1px solid #e5e7eb;margin-top:1rem}
+    button{padding:.6rem 1rem;border-radius:10px;border:0;background:#111827;color:#fff;font-weight:600;cursor:pointer}
+    input[type="file"]{margin:.5rem 0}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .muted{color:#6b7280}
+    ol{padding-left:1.25rem}
+    a.button{display:inline-block;padding:.6rem 1rem;border-radius:10px;background:#111827;color:#fff;text-decoration:none;font-weight:600}
+  </style>
+</head>
+<body>
+  <h1>Route Optimizer (Static)</h1>
+  <div class="card">
+    <div class="row">
+      <label>OpenRouteService API key:
+        <input id="apiKey" type="password" placeholder="eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjczNjJkNmI1ZWVkODQ5NmE4ZDNlYmQ3ODU0MzhhZWVlIiwiaCI6Im11cm11cjY0In0=" style="width:320px"/>
+      </label>
+      <label><input id="withService" type="checkbox"> 1 hour at each stop</label>
+    </div>
+    <label>Upload 1-column CSV (Row1=start, Row2=end, Rows3..N=stops). Header optional.</label>
+    <input id="csvFile" type="file" accept=".csv"/>
+    <div class="row">
+      <button id="runBtn">Optimize</button>
+      <button id="sampleBtn" type="button">Load sample</button>
+    </div>
+    <p class="muted" id="status"></p>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <h3>Visit order</h3>
+    <ol id="orderList"></ol>
+    <p><a id="gmapLink" class="button" href="#" target="_blank" rel="noopener" style="display:none">Open in Google Maps</a></p>
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   async function optimize(orsKey, startAddr, endAddr, stopAddrs, withService){
     setStatus("Geocoding addresses…");
@@ -139,3 +185,6 @@
     setStatus("Done.");
   }
 </script>
+
+</body>
+</html>
