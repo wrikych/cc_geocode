@@ -4,135 +4,254 @@
   <meta charset="utf-8"/>
   <title>Route Optimizer (Static)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <!-- Leaflet -->
+
+  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem}
-    .card{border:1px solid #e5e7eb;border-radius:12px;padding:1rem;box-shadow:0 1px 2px rgba(0,0,0,.05)}
-    #map{height:70vh;border-radius:12px;border:1px solid #e5e7eb;margin-top:1rem}
-    button{padding:.6rem 1rem;border-radius:10px;border:0;background:#111827;color:#fff;font-weight:600;cursor:pointer}
-    input[type="file"]{margin:.5rem 0}
-    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-    .muted{color:#6b7280}
-    ol{padding-left:1.25rem}
-    a.button{display:inline-block;padding:.6rem 1rem;border-radius:10px;background:#111827;color:#fff;text-decoration:none;font-weight:600}
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 1000px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      background: #fafafa;
+      color: #111827;
+    }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 1rem; text-align: center; }
+    .card {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+      padding: 1.25rem; box-shadow: 0 2px 4px rgba(0,0,0,.06); margin-bottom: 1.5rem;
+    }
+    label { font-weight: 500; margin-bottom: .25rem; }
+    .field { display: flex; flex-direction: column; margin-right: 1rem; flex: 1; min-width: 160px; }
+    .row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: flex-end; }
+    input[type="file"], input[type="time"], input[type="password"] {
+      padding: .45rem .6rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: .95rem;
+    }
+    button, a.button {
+      padding: .6rem 1.2rem; border-radius: 8px; border: 1px solid #111827;
+      background: #111827; color: #fff; font-weight: 500; cursor: pointer;
+      transition: background .2s, transform .1s; text-decoration: none;
+    }
+    button:hover, a.button:hover { background: #1f2937; }
+    button:active, a.button:active { transform: scale(.97); }
+    #map { height: 70vh; border-radius: 12px; border: 1px solid #e5e7eb; margin-top: 1rem; }
+    ol { padding-left: 1.25rem; margin-top: .5rem; }
+    .muted { color: #6b7280; font-size: .9rem; }
+    /* Numbered/colored marker pins (Leaflet DivIcon) */
+    .pin {
+      background:#2563eb; color:#fff; width:28px; height:28px; border-radius:50%;
+      border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35);
+      display:flex; align-items:center; justify-content:center; font-weight:700; line-height:1; font-size:14px;
+    }
+    .pin-start { background:#16a34a; } /* green */
+    .pin-end   { background:#dc2626; } /* red */
+    .pin-1 { background:#2563eb; }  .pin-2 { background:#9333ea; }
+    .pin-3 { background:#f59e0b; }  .pin-4 { background:#059669; }
+    .pin-5 { background:#ef4444; }  .pin-6 { background:#a855f7; }
+    .pin-7 { background:#10b981; }  .pin-8 { background:#3b82f6; }
   </style>
 </head>
 <body>
-  <h1>Route Optimizer (Static)</h1>
+  <h1>Route Optimizer</h1>
+
   <div class="card">
     <div class="row">
-      <label>OpenRouteService API key:
-        <input id="apiKey" type="password" placeholder="eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjczNjJkNmI1ZWVkODQ5NmE4ZDNlYmQ3ODU0MzhhZWVlIiwiaCI6Im11cm11cjY0In0=" style="width:320px"/>
-      </label>
-      <label><input id="withService" type="checkbox"> 1 hour at each stop</label>
+      <div class="field">
+        <label>What's the secret password???</label>
+        <input id="apiKey" type="password" placeholder="YOUR_ORS_KEY"/>
+      </div>
+      <div class="field">
+        <label>Start time (optional)</label>
+        <input id="startTime" type="time" />
+      </div>
     </div>
-    <label>Upload 1-column CSV (Row1=start, Row2=end, Rows3..N=stops). Header optional.</label>
-    <input id="csvFile" type="file" accept=".csv"/>
-    <div class="row">
-      <button id="runBtn">Optimize</button>
-      <button id="sampleBtn" type="button">Load sample</button>
+
+    <div class="field" style="max-width:100%">
+      <label>Upload 2-column CSV (address, label). First row=start, second=end, rest=stops</label>
+      <input id="csvFile" type="file" accept=".csv"/>
     </div>
+
+    <div class="row" style="margin-top:1rem">
+      <button id="runBtn">Gimme the Route!</button>
+    </div>
+
     <p class="muted" id="status"></p>
   </div>
 
-  <div class="card" style="margin-top:1rem">
+  <div class="card">
     <h3>Visit order</h3>
     <ol id="orderList"></ol>
     <p><a id="gmapLink" class="button" href="#" target="_blank" rel="noopener" style="display:none">Open in Google Maps</a></p>
     <div id="map"></div>
   </div>
 
+  <!-- Libraries -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-  async function optimize(orsKey, startAddr, endAddr, stopAddrs, withService){
-    setStatus("Geocoding addresses…");
-    const allAddrs = [startAddr, ...stopAddrs, endAddr];
+  <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 
-    // Geocode sequentially for clear error messages
-    const geocoded = [];
-    for(let i=0;i<allAddrs.length;i++){
-      setStatus(`Geocoding (${i+1}/${allAddrs.length}): ${allAddrs[i]}`);
-      geocoded.push(await geocode(orsKey, allAddrs[i]));
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    // ----- Config -----
+    const SERVICE_SECONDS = 3600; // 1 hour dwell at each intermediate stop
+
+    // ----- Helpers -----
+    const $ = (s)=>document.querySelector(s);
+    const statusEl = $("#status");
+    const orderList = $("#orderList");
+    const gmapLink = $("#gmapLink");
+    let map, lineLayer, markers=[];
+
+    function setStatus(msg){ statusEl.textContent = msg; }
+    function clearMap(){
+      if(lineLayer){ lineLayer.remove(); lineLayer=null; }
+      markers.forEach(m=>m.remove()); markers=[];
     }
-    const start = geocoded[0], end = geocoded[geocoded.length-1];
-    const stops = geocoded.slice(1, -1);
+    function numberedIcon(content, extraClass){
+      return L.divIcon({
+        className: "",
+        html: `<div class="pin ${extraClass}">${content}</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 28],
+        popupAnchor: [0, -28]
+      });
+    }
+    function fmtClock(epochSeconds){
+      const d = new Date(epochSeconds*1000);
+      return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+    }
+    function timeToTodayEpochSeconds(hhmm){
+      if(!hhmm) return null;
+      const [hh, mm] = hhmm.split(":").map(x=>parseInt(x,10));
+      if(Number.isNaN(hh) || Number.isNaN(mm)) return null;
+      const now = new Date();
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0);
+      return Math.floor(d.getTime()/1000);
+    }
+    function googleMapsLink(orderedAddresses){
+      const origin = orderedAddresses[0];
+      const destination = orderedAddresses[orderedAddresses.length-1];
+      const waypoints = orderedAddresses.slice(1,-1).join("|");
+      const base = "https://www.google.com/maps/dir/?api=1";
+      const params = new URLSearchParams({ origin, destination, travelmode: "driving" });
+      if(waypoints) params.set("waypoints", waypoints);
+      return base + "&" + params.toString();
+    }
+    async function parseTwoColumnCSV(file){
+      const text = await file.text();
+      const parsed = Papa.parse(text, { skipEmptyLines: true });
+      if (parsed.errors.length){
+        throw new Error("CSV parse error: " + parsed.errors[0].message);
+      }
+      let rows = parsed.data.map(row => row.map(cell => String(cell).trim()));
+      // Optional header
+      if (rows.length && rows[0].length >= 2) {
+        const h0 = rows[0][0].toLowerCase();
+        const h1 = rows[0][1].toLowerCase();
+        if ((h0 === "address" || h0 === "addresses") &&
+            (h1 === "label" || h1 === "labels" || h1 === "name" || h1 === "names")) {
+          rows = rows.slice(1);
+        }
+      }
+      rows = rows.map(r => [r[0] ?? "", r[1] ?? ""]).filter(r => r[0]);
+      if (rows.length < 2) throw new Error("Need at least two rows: first=start, second=end.");
+      const start = { address: rows[0][0], label: rows[0][1] || rows[0][0] };
+      const end   = { address: rows[1][0], label: rows[1][1] || rows[1][0] };
+      const stops = rows.slice(2).map(r => ({ address: r[0], label: r[1] || r[0] }));
+      // Deduplicate stops that equal start/end by address
+      const seen = new Set([start.address.toLowerCase(), end.address.toLowerCase()]);
+      const stopsClean = stops.filter(s => { const k=s.address.toLowerCase(); if(seen.has(k)) return false; seen.add(k); return true; });
+      return { start, end, stops: stopsClean };
+    }
+    async function geocode(orsKey, q){
+      const url = new URL("https://api.openrouteservice.org/geocode/search");
+      url.searchParams.set("api_key", orsKey);
+      url.searchParams.set("text", q);
+      url.searchParams.set("size", "1");
+      const r = await fetch(url);
+      if(!r.ok) throw new Error("Geocode failed: " + r.status);
+      const j = await r.json();
+      const f = (j.features||[])[0];
+      if(!f) throw new Error("No geocode result for: " + q);
+      const [lon,lat] = f.geometry.coordinates;
+      return {lon,lat};
+    }
 
-    // Build Optimization payload (VROOM via ORS)
-    const jobs = stops.map((c, idx)=>({
-      id: idx+1,
-      location: [c.lon, c.lat],
-      service: withService ? 3600 : 0 // 1h dwell per stop if requested
-    }));
-    const body = {
-      jobs,
-      vehicles: [{
+    // ----- Optimization + Directions + Schedule -----
+    async function optimize({orsKey, startObj, endObj, stopObjs, startTimeStr}){
+      setStatus("Geocoding addresses…");
+      const all = [startObj, ...stopObjs, endObj];
+
+      const coords = [];
+      for(let i=0;i<all.length;i++){
+        setStatus(`Geocoding (${i+1}/${all.length}): ${all[i].address}`);
+        coords.push(await geocode(orsKey, all[i].address));
+      }
+      const start = coords[0], end = coords[coords.length-1];
+      const stops = coords.slice(1, -1);
+
+      // Build Optimization payload (always 1h service at stops)
+      const jobs = stops.map((c, idx)=>({
+        id: idx+1,
+        location: [c.lon, c.lat],
+        service: SERVICE_SECONDS
+      }));
+      const vehicle = {
         id: 1,
         profile: "driving-car",
         start: [start.lon, start.lat],
         end:   [end.lon,   end.lat]
-      }],
-      // Ask for geometry if available
-      options: { g: true }
-    };
-
-    setStatus("Calling ORS Optimization…");
-    const r = await fetch("https://api.openrouteservice.org/optimization", {
-      method: "POST",
-      headers: {
-        "Authorization": orsKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-    if(!r.ok){
-      const txt = await r.text();
-      throw new Error("Optimization error: " + r.status + " " + txt);
-    }
-    const plan = await r.json();
-    const route = (plan.routes||[])[0];
-    if(!route) throw new Error("No route found.");
-
-    // Build ordered address list from steps
-    const stepSeq = route.steps; // sequence of {type: 'start'|'job'|'end', id?}
-    const ordered = [];
-    ordered.push(startAddr);
-    for(const s of stepSeq){
-      if(s.type === "job"){
-        // id is 1-based index matching our jobs array
-        const originalIndex = s.id - 1;
-        ordered.push(stopAddrs[originalIndex]);
+      };
+      const twStart = timeToTodayEpochSeconds(startTimeStr);
+      if (twStart !== null) {
+        const twEnd = twStart + 48 * 3600; // long horizon
+        vehicle.time_window = [twStart, twEnd];
       }
-    }
-    ordered.push(endAddr);
+      const optBody = { jobs, vehicles: [vehicle], options: { g: true } };
 
-    // Try to get geometry from optimization; if invalid or missing, fallback to Directions
-    let geojsonRoute = null;
-    if (route.geometry && typeof route.geometry === "object" && route.geometry.type === "LineString") {
-      // Optimization already returned a LineString GeoJSON
-      geojsonRoute = { type: "Feature", geometry: route.geometry, properties: {} };
-    } else {
-      // Fallback: call Directions with the optimized order to get a GeoJSON linestring
-      setStatus("Fetching route geometry (Directions)…");
+      setStatus("Calling ORS Optimization…");
+      const r = await fetch("https://api.openrouteservice.org/optimization", {
+        method: "POST",
+        headers: { "Authorization": orsKey, "Content-Type": "application/json" },
+        body: JSON.stringify(optBody)
+      });
+      if(!r.ok){
+        const txt = await r.text();
+        throw new Error("Optimization error: " + r.status + " " + txt);
+      }
+      const plan = await r.json();
+      const route = (plan.routes||[])[0];
+      if(!route) throw new Error("No route found.");
+
+      // Build ordered addresses & labels from optimized steps
+      const stepSeq = route.steps || [];
+      const orderedAddresses = [startObj.address];
+      const orderedLabels    = [startObj.label];
+      for(const s of stepSeq){
+        if(s.type === "job"){
+          const i = s.id - 1;
+          orderedAddresses.push(stopObjs[i].address);
+          orderedLabels.push(stopObjs[i].label);
+        }
+      }
+      orderedAddresses.push(endObj.address);
+      orderedLabels.push(endObj.label);
+
+      // Always call Directions to get leg durations for schedule
       const coordsOrdered = [];
-      // start
       coordsOrdered.push([start.lon, start.lat]);
-      // jobs in optimized order
       for(const s of stepSeq){
         if(s.type === "job"){
           const c = stops[s.id - 1];
           coordsOrdered.push([c.lon, c.lat]);
         }
       }
-      // end
       coordsOrdered.push([end.lon, end.lat]);
 
+      setStatus("Fetching Directions for geometry & durations…");
       const dr = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
         method: "POST",
-        headers: {
-          "Authorization": orsKey,
-          "Content-Type": "application/json"
-        },
+        headers: { "Authorization": orsKey, "Content-Type": "application/json" },
         body: JSON.stringify({ coordinates: coordsOrdered })
       });
       if(!dr.ok){
@@ -140,51 +259,118 @@
         throw new Error("Directions error: " + dr.status + " " + txt);
       }
       const dj = await dr.json();
-      // ORS Directions GeoJSON returns a FeatureCollection
-      // Use the first feature (LineString)
-      if(dj && dj.type === "FeatureCollection" && dj.features && dj.features.length){
-        geojsonRoute = dj.features[0];
-      } else {
+      if(!(dj && dj.type === "FeatureCollection" && dj.features && dj.features.length)){
         throw new Error("Invalid Directions GeoJSON.");
       }
-    }
+      const feature = dj.features[0];
+      const segments = feature.properties?.segments || []; // one per leg
+      const legDurations = segments.map(s => s.duration || 0); // seconds
 
-    // Draw on Leaflet
-    clearMap();
-    if(!map){
-      map = L.map("map");
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; OpenStreetMap'
-      }).addTo(map);
-    }
-    lineLayer = L.geoJSON(geojsonRoute).addTo(map);
-
-    // Markers (ordered)
-    let idx = 1;
-    markers.push(L.marker([start.lat,start.lon]).addTo(map).bindPopup(`${idx++}. ${startAddr}`));
-    for(const s of stepSeq){
-      if(s.type === "job"){
-        const c = stops[s.id - 1];
-        const addr = stopAddrs[s.id - 1];
-        markers.push(L.marker([c.lat,c.lon]).addTo(map).bindPopup(`${idx++}. ${addr}`));
+      // ---- Build schedule with dwell ----
+      const baseStartEpoch = (twStart !== null) ? twStart : Math.floor(Date.now()/1000);
+      const arrivals = []; // per stop including start and end
+      let current = baseStartEpoch;
+      arrivals.push(current); // start arrival = start time
+      // For each leg: add dwell at previous node (only for intermediate stops), then drive
+      // Legs count = ordered points - 1
+      for (let i = 0; i < legDurations.length; i++) {
+        // dwell at previous node if it is an intermediate stop (i >= 1 and i < last)
+        const isPrevIntermediate = (i >= 1 && i < legDurations.length);
+        if (isPrevIntermediate) current += SERVICE_SECONDS;
+        // drive this leg
+        current += Math.max(0, Math.floor(legDurations[i]));
+        arrivals.push(current); // arrival at next node
       }
+      // arrivals.length == orderedAddresses.length
+
+      // ---- Render map ----
+      clearMap();
+      if(!map){
+        map = L.map("map");
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
+      }
+      lineLayer = L.geoJSON(feature).addTo(map);
+
+      let idxNum = 1;
+      const startLabel = `${orderedLabels[0]} — ${fmtClock(arrivals[0])}`;
+      markers.push(
+        L.marker([coordsOrdered[0][1], coordsOrdered[0][0]], {icon: numberedIcon("S","pin-start")})
+         .addTo(map).bindPopup(`START: ${startLabel}`)
+      );
+      for (let i = 1; i < orderedLabels.length - 1; i++) {
+        const coord = coordsOrdered[i];
+        const label = `${orderedLabels[i]} — ${fmtClock(arrivals[i])}`;
+        const colorClass = `pin-${(idxNum<=8)?idxNum:1}`;
+        markers.push(
+          L.marker([coord[1], coord[0]], {icon: numberedIcon(String(idxNum), colorClass)})
+           .addTo(map).bindPopup(`${idxNum}. ${label}`)
+        );
+        idxNum++;
+      }
+      const endCoord = coordsOrdered[coordsOrdered.length - 1];
+      const endLabel = `${orderedLabels[orderedLabels.length-1]} — ${fmtClock(arrivals[arrivals.length-1])}`;
+      markers.push(
+        L.marker([endCoord[1], endCoord[0]], {icon: numberedIcon("E","pin-end")})
+         .addTo(map).bindPopup(`END: ${endLabel}`)
+      );
+      map.fitBounds(lineLayer.getBounds(), {padding:[30,30]});
+
+      // ---- List + Google Maps link ----
+      orderList.innerHTML = "";
+      for (let i = 0; i < orderedLabels.length; i++) {
+        const li = document.createElement("li");
+        li.textContent = `${orderedLabels[i]} — ${fmtClock(arrivals[i])}`;
+        orderList.appendChild(li);
+      }
+      gmapLink.href = googleMapsLink(orderedAddresses);
+      gmapLink.style.display = "inline-block";
+      setStatus("Done.");
     }
-    markers.push(L.marker([end.lat,end.lon]).addTo(map).bindPopup(`${idx++}. ${endAddr}`));
 
-    map.fitBounds(lineLayer.getBounds(), {padding:[30,30]});
+    // ----- Wire up buttons -----
+    $("#runBtn").addEventListener("click", async ()=>{
+      try{
+        setStatus("");
+        const orsKey = $("#apiKey").value.trim();
+        if(!orsKey){ alert("Enter ORS API key"); return; }
+        const file = $("#csvFile").files[0];
+        if(!file){ alert("Choose a CSV file"); return; }
+        const startTimeStr = $("#startTime").value || null;
 
-    // Show list & Google Maps link
-    orderList.innerHTML = "";
-    ordered.forEach(a=>{
-      const li = document.createElement("li");
-      li.textContent = a;
-      orderList.appendChild(li);
+        const {start, end, stops} = await parseTwoColumnCSV(file);
+        await optimize({
+          orsKey,
+          startObj: start,
+          endObj: end,
+          stopObjs: stops,
+          startTimeStr
+        });
+      }catch(err){
+        console.error(err);
+        setStatus(err.message || String(err));
+        alert(err.message || String(err));
+      }
     });
-    gmapLink.href = googleMapsLink(ordered);
-    gmapLink.style.display = "inline-block";
-    setStatus("Done.");
-  }
-</script>
 
+    $("#sampleBtn").addEventListener("click", ()=>{
+      // CSV with two columns: address,label  (header optional)
+      const sample = [
+        "2121 Edwards Street, Houston, TX, 77007, US,Start Depot",
+        "2121 Edwards Street, Houston, TX, 77007, US,End Depot",
+        "13122 Conifer Road, Houston, TX, 77079, US,Conifer",
+        "3806 Olympia Drive, Houston, TX, 77019, US,Olympia",
+        "4132 Southwestern Street, West University Place, TX, 77005, US,Southwestern"
+      ].join("\n");
+      const blob = new Blob([sample], {type:"text/csv"});
+      const file = new File([blob], "sample.csv", {type:"text/csv"});
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      $("#csvFile").files = dt.files;
+      setStatus("Loaded sample CSV into file input.");
+    });
+  });
+  </script>
 </body>
 </html>
