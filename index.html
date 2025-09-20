@@ -1,0 +1,226 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Route Optimizer (Static)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem}
+    .card{border:1px solid #e5e7eb;border-radius:12px;padding:1rem;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+    #map{height:70vh;border-radius:12px;border:1px solid #e5e7eb;margin-top:1rem}
+    button{padding:.6rem 1rem;border-radius:10px;border:0;background:#111827;color:#fff;font-weight:600;cursor:pointer}
+    input[type="file"]{margin:.5rem 0}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .muted{color:#6b7280}
+    ol{padding-left:1.25rem}
+    a.button{display:inline-block;padding:.6rem 1rem;border-radius:10px;background:#111827;color:#fff;text-decoration:none;font-weight:600}
+  </style>
+</head>
+<body>
+  <h1>Route Optimizer (Static)</h1>
+  <div class="card">
+    <div class="row">
+      <label>OpenRouteService API key:
+        <input id="apiKey" type="password" placeholder="eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjczNjJkNmI1ZWVkODQ5NmE4ZDNlYmQ3ODU0MzhhZWVlIiwiaCI6Im11cm11cjY0In0=" style="width:320px"/>
+      </label>
+      <label><input id="withService" type="checkbox"> 1 hour at each stop</label>
+    </div>
+    <label>Upload 1-column CSV (Row1=start, Row2=end, Rows3..N=stops). Header optional.</label>
+    <input id="csvFile" type="file" accept=".csv"/>
+    <div class="row">
+      <button id="runBtn">Optimize</button>
+      <button id="sampleBtn" type="button">Load sample</button>
+    </div>
+    <p class="muted" id="status"></p>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <h3>Visit order</h3>
+    <ol id="orderList"></ol>
+    <p><a id="gmapLink" class="button" href="#" target="_blank" rel="noopener" style="display:none">Open in Google Maps</a></p>
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const $ = (s)=>document.querySelector(s);
+    const statusEl = $("#status");
+    const orderList = $("#orderList");
+    const gmapLink = $("#gmapLink");
+    let map, lineLayer, markers=[];
+
+    function setStatus(msg){ statusEl.textContent = msg; }
+    function clearMap(){
+      if(lineLayer){ lineLayer.remove(); lineLayer=null; }
+      markers.forEach(m=>m.remove()); markers=[];
+    }
+    function parseCSVText(text){
+      // Split lines, drop empties, drop optional header 'address(es)'
+      let lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+      if(lines.length && ["address","addresses"].includes(lines[0].toLowerCase())) lines = lines.slice(1);
+      if(lines.length < 2) throw new Error("Need at least 2 lines: first=start, second=end.");
+      const start = lines[0], end = lines[1], stops = lines.slice(2);
+      // Dedupe start/end from stops (case-insensitive)
+      const seen = new Set([start.toLowerCase(), end.toLowerCase()]);
+      const stopsClean = stops.filter(s=>{ const k=s.toLowerCase(); if(seen.has(k)) return false; seen.add(k); return true; });
+      return {start, end, stops: stopsClean};
+    }
+
+    async function geocode(orsKey, q){
+      const url = new URL("https://api.openrouteservice.org/geocode/search");
+      url.searchParams.set("api_key", orsKey);
+      url.searchParams.set("text", q);
+      url.searchParams.set("size", "1");
+      const r = await fetch(url);
+      if(!r.ok) throw new Error("Geocode failed: " + r.status);
+      const j = await r.json();
+      const f = (j.features||[])[0];
+      if(!f) throw new Error("No geocode result for: " + q);
+      const [lon,lat] = f.geometry.coordinates;
+      return {lon,lat,label:q};
+    }
+
+    function googleMapsLink(addresses){
+      const origin = addresses[0];
+      const destination = addresses[addresses.length-1];
+      const waypoints = addresses.slice(1,-1).join("|");
+      const base = "https://www.google.com/maps/dir/?api=1";
+      const params = new URLSearchParams({ origin, destination, travelmode: "driving" });
+      if(waypoints) params.set("waypoints", waypoints);
+      return base + "&" + params.toString();
+    }
+
+    async function optimize(orsKey, startAddr, endAddr, stopAddrs, withService){
+      setStatus("Geocoding addresses…");
+      const allAddrs = [startAddr, ...stopAddrs, endAddr];
+      // Geocode all serially (simpler error surfacing)
+      const coords = [];
+      for(let i=0;i<allAddrs.length;i++){
+        setStatus(`Geocoding (${i+1}/${allAddrs.length}): ${allAddrs[i]}`);
+        coords.push(await geocode(orsKey, allAddrs[i]));
+      }
+      // Build Optimization payload (VROOM via ORS)
+      // vehicles[0].start/end are [lon,lat]; jobs are the stops (not start/end)
+      const start = coords[0], end = coords[coords.length-1];
+      const stops = coords.slice(1,-1);
+      const jobs = stops.map((c, idx)=>({
+        id: idx+1,
+        location: [c.lon, c.lat],
+        service: withService ? 3600 : 0 // 1h per stop if requested
+      }));
+      const body = {
+        jobs,
+        vehicles: [{
+          id: 1,
+          profile: "driving-car",
+          start: [start.lon, start.lat],
+          end:   [end.lon,   end.lat]
+        }],
+        options: { g: true } // request geometry
+      };
+
+      setStatus("Calling ORS Optimization…");
+      const r = await fetch("https://api.openrouteservice.org/optimization", {
+        method: "POST",
+        headers: {
+          "Authorization": orsKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+      if(!r.ok){
+        const txt = await r.text();
+        throw new Error("Optimization error: " + r.status + " " + txt);
+      }
+      const plan = await r.json();
+      const route = (plan.routes||[])[0];
+      if(!route) throw new Error("No route found.");
+      // route.steps is the sequence: first 'start', then jobs, then 'end'
+      const stepSeq = route.steps;
+      // Build ordered labels (start, jobs in order, end)
+      const ordered = [];
+      ordered.push(startAddr);
+      for(const s of stepSeq){
+        if(s.type === "job"){
+          const job = jobs.find(j=>j.id === s.id);
+          const originalIndex = s.id - 1; // mapping to stopAddrs
+          ordered.push(stopAddrs[originalIndex]);
+        }
+      }
+      ordered.push(endAddr);
+
+      // Draw on Leaflet
+      const coordsLine = route.geometry; // GeoJSON (because options.g = true)
+      clearMap();
+      if(!map){
+        map = L.map("map");
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
+      }
+      lineLayer = L.geoJSON(coordsLine).addTo(map);
+      // Add markers in ordered sequence for clarity
+      const allPoints = [start, ...stops, end];
+      const jobIdToCoord = new Map(stops.map((c,i)=>[i+1, c]));
+      let idx = 1;
+      markers.push(L.marker([start.lat,start.lon]).addTo(map).bindPopup(`${idx++}. ${startAddr}`));
+      for(const s of stepSeq){
+        if(s.type === "job"){
+          const c = jobIdToCoord.get(s.id);
+          const addr = stopAddrs[s.id-1];
+          markers.push(L.marker([c.lat,c.lon]).addTo(map).bindPopup(`${idx++}. ${addr}`));
+        }
+      }
+      markers.push(L.marker([end.lat,end.lon]).addTo(map).bindPopup(`${idx++}. ${endAddr}`));
+      map.fitBounds(lineLayer.getBounds(), {padding:[30,30]});
+
+      // Show list & GMaps link
+      orderList.innerHTML = "";
+      ordered.forEach(a=>{
+        const li = document.createElement("li");
+        li.textContent = a;
+        orderList.appendChild(li);
+      });
+      gmapLink.href = googleMapsLink(ordered);
+      gmapLink.style.display = "inline-block";
+      setStatus("Done.");
+    }
+
+    $("#runBtn").addEventListener("click", async ()=>{
+      try{
+        setStatus("");
+        const orsKey = $("#apiKey").value.trim();
+        if(!orsKey){ alert("Enter ORS API key"); return; }
+        const file = $("#csvFile").files[0];
+        if(!file){ alert("Choose a CSV file"); return; }
+        const withService = $("#withService").checked;
+        const text = await file.text();
+        const {start, end, stops} = parseCSVText(text);
+        await optimize(orsKey, start, end, stops, withService);
+      }catch(err){
+        console.error(err);
+        setStatus(err.message || String(err));
+        alert(err.message || String(err));
+      }
+    });
+
+    $("#sampleBtn").addEventListener("click", ()=>{
+      const sample = [
+        "2121 Edwards Street, Houston, TX, 77007, US",
+        "2121 Edwards Street, Houston, TX, 77007, US",
+        "13122 Conifer Road, Houston, TX, 77079, US",
+        "3806 Olympia Drive, Houston, TX, 77019, US",
+        "4132 Southwestern Street, West University Place, TX, 77005, US"
+      ].join("\n");
+      const blob = new Blob([sample], {type:"text/csv"});
+      const file = new File([blob], "sample.csv", {type:"text/csv"});
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      $("#csvFile").files = dt.files;
+      setStatus("Loaded sample CSV into file input.");
+    });
+  </script>
+</body>
+</html>
